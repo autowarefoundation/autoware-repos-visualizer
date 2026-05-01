@@ -1,0 +1,42 @@
+{
+  "name": "autoware-repos-visualizer-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "data": "tsx scripts/generate-data.ts",
+    "dev": "vite",
+    "build": "npm run data && svelte-check --tsconfig ./tsconfig.json && vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "d3-array": "^3.2.4",
+    "d3-axis": "^3.0.0",
+    "d3-scale": "^4.0.2",
+    "d3-selection": "^3.0.0",
+    "d3-time": "^3.1.0",
+    "d3-time-format": "^4.1.0",
+    "d3-transition": "^3.0.1",
+    "d3-zoom": "^3.0.0",
+    "js-yaml": "^4.1.0",
+    "svelte": "^4.2.19"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^3.1.2",
+    "@tsconfig/svelte": "^5.0.4",
+    "@types/d3-array": "^3.2.1",
+    "@types/d3-axis": "^3.0.6",
+    "@types/d3-scale": "^4.0.8",
+    "@types/d3-selection": "^3.0.10",
+    "@types/d3-time": "^3.0.3",
+    "@types/d3-time-format": "^4.0.3",
+    "@types/d3-transition": "^3.0.8",
+    "@types/d3-zoom": "^3.0.8",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.12.7",
+    "svelte-check": "^3.8.6",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.10"
+  }
+}
