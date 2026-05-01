@@ -297,14 +297,6 @@ export function createTimeline(
       });
 
     enter
-      .append("title")
-      .text(
-        (d) =>
-          `${d.repo.key}\n${d.commit.short}  ${d.commit.date}\n${d.commit.subject}` +
-          (d.isPinned ? `\n[pinned: ${d.repo.pinnedVersion}]` : ""),
-      );
-
-    enter
       .merge(sel)
       .attr("cx", (d) => xCurrent(d.date))
       .attr("cy", (d) => d.y);
