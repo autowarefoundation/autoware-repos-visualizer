@@ -109,6 +109,20 @@ export function createTimeline(
     .append("g")
     .attr("transform", `translate(${MARGIN.left}, ${MARGIN.top})`);
 
+  // transparent capture rect so wheel/drag fire across the whole plot area
+  // (including the gaps between lanes). Must be at the bottom of the z-order
+  // and inside `root` so pointer coords align with xBase's local range.
+  const captureRect = root
+    .append("rect")
+    .attr("class", "zoom-capture")
+    .attr("x", 0)
+    .attr("y", -MARGIN.top + 2)
+    .attr("width", 0)
+    .attr("height", contentHeight + MARGIN.top + MARGIN.bottom)
+    .attr("fill", "transparent")
+    .style("pointer-events", "all")
+    .style("cursor", "grab");
+
   // background lane guides
   const lanesGroup = root
     .append("g")
@@ -226,6 +240,7 @@ export function createTimeline(
     xBase.range([width, 0]);
     xCurrent.range([width, 0]);
     defs.select("rect").attr("width", width);
+    captureRect.attr("width", width);
     lanesGroup.selectAll<SVGLineElement, LaneDatum>("line.lane").attr("x2", width);
   }
 
@@ -302,19 +317,23 @@ export function createTimeline(
       .attr("cy", (d) => d.y);
   }
 
-  // Zoom behavior — X only
-  const z: ZoomBehavior<SVGSVGElement, unknown> = zoom<SVGSVGElement, unknown>()
+  // Zoom behavior — X only. Attached to the inner `root` group so the cursor
+  // coordinates d3-zoom uses for anchoring are in the same local space as
+  // xBase's range; otherwise the wheel anchor is offset by MARGIN.left.
+  const z: ZoomBehavior<SVGGElement, unknown> = zoom<SVGGElement, unknown>()
     .scaleExtent([1, 400])
     .on("zoom", (event) => {
       const t: ZoomTransform = event.transform;
       xCurrent = t.rescaleX(xBase);
       render();
-    });
+    })
+    .on("start", () => captureRect.style("cursor", "grabbing"))
+    .on("end", () => captureRect.style("cursor", "grab"));
 
-  svg.call(z);
+  root.call(z);
 
   // disable double-click zoom (it's annoying when clicking commits near each other)
-  svg.on("dblclick.zoom", null);
+  root.on("dblclick.zoom", null);
 
   function setDomain(domain: [Date, Date]): void {
     // domain = [oldest, newest]; with reversed range, newest lands at screen x=0 (left).
@@ -326,7 +345,7 @@ export function createTimeline(
     // place d1 (newest) at zoomed x=0: k * xBase(d1) + tx = 0
     const tx = -k * xBase(d1)!;
     const t = zoomIdentity.translate(tx, 0).scale(k);
-    svg.transition().duration(400).call(z.transform, t);
+    root.transition().duration(400).call(z.transform, t);
   }
 
   function resize(): void {
@@ -345,7 +364,7 @@ export function createTimeline(
     setDomain,
     resize,
     destroy() {
-      svg.on(".zoom", null);
+      root.on(".zoom", null);
       svg.selectAll("*").remove();
     },
   };
