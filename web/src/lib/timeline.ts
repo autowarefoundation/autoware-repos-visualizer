@@ -202,6 +202,24 @@ export function createTimeline(
     .attr("transform", `translate(0, -6)`)
     .attr("color", "var(--fg-muted)");
 
+  // "today" marker — a vertical line in a faded accent shade, drawn behind
+  // the version polylines so commit dots and rings always paint on top.
+  const todayGroup = root
+    .append("g")
+    .attr("class", "today-marker")
+    .attr("clip-path", "url(#plot-clip)");
+
+  const todayLine = todayGroup
+    .append("line")
+    .attr("class", "today-line")
+    .attr("y1", 0)
+    .attr("y2", contentHeight)
+    .attr("stroke", "var(--accent)")
+    .attr("stroke-width", 1.5)
+    .attr("stroke-dasharray", "4 4")
+    .attr("stroke-opacity", 0.55)
+    .style("pointer-events", "none");
+
   // version polylines (behind commits)
   const versionLineGroup = root
     .append("g")
@@ -324,6 +342,8 @@ export function createTimeline(
     xCurrent = xBase.copy();
   }
 
+  const todayDate = new Date();
+
   function render(): void {
     // axis (drawn above the plot area)
     const axis = axisTop<Date>(xCurrent)
@@ -335,6 +355,10 @@ export function createTimeline(
       .attr("fill", "var(--fg-muted)")
       .attr("font-size", "11px");
     xAxisGroup.selectAll("path, line").attr("stroke", "var(--border)");
+
+    // today marker — keep it on the current x scale so it follows zoom/pan
+    const todayX = xCurrent(todayDate);
+    todayLine.attr("x1", todayX).attr("x2", todayX);
 
     // viewport-cull commits
     const [d0, d1] = xCurrent.domain();
