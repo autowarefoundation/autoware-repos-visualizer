@@ -38,13 +38,13 @@ jobs:
             src
           key: repo-clones-v1
 
-      - name: Set up vcstool
-        run: pip install --user vcstool
+      - name: Set up Python tools
+        run: pip install --user vcstool pyyaml
 
-      - name: Sync autoware-meta and sub-repos
+      - name: Sync autoware-meta
         run: |
           set -euo pipefail
-          # Meta repo: full history needed for tag walking.
+          # Full history is required because generate-data.ts walks every tag.
           if [ -d autoware-meta/autoware/.git ]; then
             git -C autoware-meta/autoware fetch --all --tags --prune --quiet
             git -C autoware-meta/autoware checkout main --quiet
@@ -54,11 +54,18 @@ jobs:
             git clone --quiet https://github.com/autowarefoundation/autoware.git autoware-meta/autoware
           fi
 
-          # Sub-repos: vcs import skips entries that already have clones.
+      - name: Reconcile cached sub-repo clones with autoware.repos
+        run: python3 .github/scripts/reconcile-clones.py
+
+      - name: Import and refresh sub-repos
+        run: |
+          set -euo pipefail
+          # Anything reconcile removed (stale path, URL mismatch) gets re-cloned;
+          # anything that survived gets refreshed below. --skip-existing makes
+          # vcs import a no-op for the surviving clones.
           mkdir -p src
           vcs import src < autoware-meta/autoware/repositories/autoware.repos --skip-existing
 
-          # Refresh existing clones so they pick up new commits and tags.
           # Off-branch tags are required for the historical-pin injection step
           # in generate-data.ts, so we always fetch --tags here.
           while IFS= read -r gitdir; do
