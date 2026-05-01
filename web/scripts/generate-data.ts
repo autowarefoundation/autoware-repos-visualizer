@@ -58,8 +58,12 @@ interface AutowareVersion {
   isMain: boolean;
   releasedAt: string;   // ISO
   color: string;        // CSS color string
+  metaSha: string;      // commit on autoware-meta this tag points to
   pins: VersionPin[];
 }
+
+const META_KEY = "autoware/autoware";
+const META_URL = "https://github.com/autowarefoundation/autoware";
 
 interface Dataset {
   generatedAt: string;
@@ -291,6 +295,11 @@ function processVersion(
     console.warn(`  ! ${ref}: cannot resolve commit date`);
     return null;
   }
+  const metaSha = tryGit(META_DIR, ["rev-parse", `${ref}^{commit}`]);
+  if (!metaSha) {
+    console.warn(`  ! ${ref}: cannot resolve meta commit sha`);
+    return null;
+  }
   const reposFile = loadAutowareReposAtRef(ref);
   if (!reposFile?.repositories) {
     console.warn(`  ! ${ref}: no autoware.repos found`);
@@ -324,7 +333,30 @@ function processVersion(
     `  ${ref.padEnd(8)} ${releasedAt.slice(0, 10)}  pins=${String(pins.length).padStart(2)}  removed=${dropRemoved}  unresolved=${dropUnresolved}`,
   );
 
-  return { tag: ref, isMain, releasedAt, color, pins };
+  return { tag: ref, isMain, releasedAt, color, metaSha, pins };
+}
+
+function processMetaRepo(): RepoData | null {
+  if (!existsSync(META_DIR)) return null;
+  const raw = tryGit(META_DIR, [
+    "log",
+    "main",
+    `--format=%H${UNIT}%h${UNIT}%cI${UNIT}%an${UNIT}%s${RECORD}`,
+  ]);
+  const commits = raw ? parseCommits(raw, META_URL) : [];
+  const headSha = tryGit(META_DIR, ["rev-parse", "main"]);
+  if (!headSha) return null;
+  return {
+    key: META_KEY,
+    category: "autoware",
+    shortName: "autoware",
+    remoteUrl: META_URL,
+    pinnedVersion: "main",
+    pinnedSha: headSha,
+    pinnedRefKind: "branch",
+    defaultBranch: "main",
+    commits,
+  };
 }
 
 function processVersions(idx: RepoIndex): AutowareVersion[] {
@@ -392,6 +424,21 @@ function main(): void {
   const idx = buildRepoIndex(repos);
   const versions = processVersions(idx);
 
+  // Add the meta repo as the top-row lane and prepend a meta pin to every
+  // version so rings/polylines pass through it. The "pin" on the meta lane
+  // is just the version's tag commit on autoware-meta itself.
+  const metaRepo = processMetaRepo();
+  if (metaRepo) {
+    repos.unshift(metaRepo);
+    for (const v of versions) {
+      v.pins.unshift({
+        repoKey: META_KEY,
+        sha: v.metaSha,
+        pinnedVersion: v.tag,
+      });
+    }
+  }
+
   // Some historical pins point at commits that aren't reachable from the
   // default branch (e.g. release tags on maintenance branches). Inject those
   // commits into the relevant repo's commit list so the timeline can render
@@ -403,7 +450,7 @@ function main(): void {
       const repo = repoByKey.get(pin.repoKey);
       if (!repo) continue;
       if (repo.commits.some((c) => c.sha === pin.sha)) continue;
-      const dir = resolve(SRC_ROOT, repo.key);
+      const dir = repo.key === META_KEY ? META_DIR : resolve(SRC_ROOT, repo.key);
       const c = loadCommitByRef(dir, pin.sha, repo.remoteUrl);
       if (c) {
         repo.commits.push(c);

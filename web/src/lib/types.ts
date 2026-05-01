@@ -32,6 +32,7 @@ export interface AutowareVersion {
   isMain: boolean;
   releasedAt: string;
   color: string;
+  metaSha: string; // commit on the autoware-meta repo this tag points at
   pins: VersionPin[];
 }
 

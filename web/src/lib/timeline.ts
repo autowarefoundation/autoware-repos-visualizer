@@ -34,7 +34,15 @@ function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 1) + "…";
 }
 
-const CATEGORY_ORDER = ["core", "universe", "launcher", "sensor_component"];
+const CATEGORY_ORDER = [
+  "autoware",
+  "core",
+  "universe",
+  "launcher",
+  "sensor_component",
+];
+
+const META_KEY = "autoware/autoware";
 
 function categoryRank(c: string): number {
   const idx = CATEGORY_ORDER.indexOf(c);
@@ -238,11 +246,19 @@ export function createTimeline(
     .attr("class", "version-rings")
     .attr("clip-path", "url(#plot-clip)");
 
+  // Map autoware-meta tag commits to their AutowareVersion so we can paint
+  // the meta lane's tag commits in the version's rainbow color.
+  const metaVersionBySha = new Map<string, AutowareVersion>();
+  for (const v of dataset.versions ?? []) {
+    if (v.metaSha) metaVersionBySha.set(v.metaSha, v);
+  }
+
   // Data preparation: flatten commits with repo y-coordinate
   type CommitDatum = {
     repo: RepoData;
     commit: CommitRecord;
     isPinned: boolean;
+    metaVersion?: AutowareVersion;
     y: number;
     date: Date;
   };
@@ -250,21 +266,30 @@ export function createTimeline(
   for (const repo of dataset.repos) {
     const lane = repoIndex.get(repo.key);
     if (!lane) continue;
+    const isMetaLane = repo.key === META_KEY;
     for (const commit of repo.commits) {
+      const metaVersion = isMetaLane
+        ? metaVersionBySha.get(commit.sha)
+        : undefined;
       allCommits.push({
         repo,
         commit,
         isPinned: commit.sha === repo.pinnedSha,
+        metaVersion,
         y: lane.y,
         date: new Date(commit.date),
       });
     }
   }
 
-  // pinned commits last so they paint on top
-  allCommits.sort((a, b) =>
-    a.isPinned === b.isPinned ? 0 : a.isPinned ? 1 : -1,
-  );
+  // Z-order: regular < metaVersion < pinned. Pinned lands on top so the
+  // accent dot still wins; the version-coloured tag dots paint above plain
+  // gray commits but below the pinned highlight.
+  allCommits.sort((a, b) => {
+    const score = (c: CommitDatum) =>
+      (c.metaVersion ? 1 : 0) + (c.isPinned ? 2 : 0);
+    return score(a) - score(b);
+  });
 
   // pre-compute pinned-commit datum per repo for off-view indicators
   type OffViewDatum = {
@@ -370,19 +395,36 @@ export function createTimeline(
 
     sel.exit().remove();
 
+    const radiusFor = (d: CommitDatum): number =>
+      d.isPinned ? PINNED_RADIUS : d.metaVersion ? PINNED_RADIUS - 1 : COMMIT_RADIUS;
+    const fillFor = (d: CommitDatum): string =>
+      d.isPinned
+        ? "var(--accent)"
+        : d.metaVersion
+          ? d.metaVersion.color
+          : "var(--commit)";
+    const strokeFor = (d: CommitDatum): string =>
+      d.isPinned || d.metaVersion ? "var(--bg)" : "none";
+    const strokeWidthFor = (d: CommitDatum): number =>
+      d.isPinned || d.metaVersion ? 2 : 0;
+
     const enter = sel
       .enter()
       .append("circle")
-      .attr("class", (d) => "commit" + (d.isPinned ? " pinned" : ""))
-      .attr("r", (d) => (d.isPinned ? PINNED_RADIUS : COMMIT_RADIUS))
-      .attr("fill", (d) => (d.isPinned ? "var(--accent)" : "var(--commit)"))
-      .attr("stroke", (d) => (d.isPinned ? "var(--bg)" : "none"))
-      .attr("stroke-width", (d) => (d.isPinned ? 2 : 0))
+      .attr("class", (d) =>
+        "commit" +
+        (d.isPinned ? " pinned" : "") +
+        (d.metaVersion ? " meta-version" : ""),
+      )
+      .attr("r", radiusFor)
+      .attr("fill", fillFor)
+      .attr("stroke", strokeFor)
+      .attr("stroke-width", strokeWidthFor)
       .style("cursor", "pointer")
       .on("mouseover", function (this: SVGCircleElement, event: MouseEvent, d: CommitDatum) {
         select(this)
-          .attr("r", d.isPinned ? PINNED_RADIUS + 2 : COMMIT_RADIUS + 2)
-          .attr("fill", d.isPinned ? "var(--accent)" : "var(--commit-hover)");
+          .attr("r", radiusFor(d) + 2)
+          .attr("fill", d.metaVersion || d.isPinned ? fillFor(d) : "var(--commit-hover)");
         callbacks.onHover({
           repo: d.repo,
           commit: d.commit,
@@ -401,9 +443,7 @@ export function createTimeline(
         });
       })
       .on("mouseout", function (this: SVGCircleElement, _event: MouseEvent, d: CommitDatum) {
-        select(this)
-          .attr("r", d.isPinned ? PINNED_RADIUS : COMMIT_RADIUS)
-          .attr("fill", d.isPinned ? "var(--accent)" : "var(--commit)");
+        select(this).attr("r", radiusFor(d)).attr("fill", fillFor(d));
         callbacks.onLeave();
       })
       .on("click", (_event: MouseEvent, d: CommitDatum) => {
