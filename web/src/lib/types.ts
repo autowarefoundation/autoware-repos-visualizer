@@ -21,9 +21,24 @@ export interface RepoData {
   commits: CommitRecord[];
 }
 
+export interface VersionPin {
+  repoKey: string;
+  sha: string;
+  pinnedVersion: string;
+}
+
+export interface AutowareVersion {
+  tag: string;
+  isMain: boolean;
+  releasedAt: string;
+  color: string;
+  pins: VersionPin[];
+}
+
 export interface Dataset {
   generatedAt: string;
   repos: RepoData[];
+  versions: AutowareVersion[];
 }
 
 export type RangeKey = "1D" | "1W" | "1M" | "3M" | "6M" | "1Y" | "2Y" | "All";

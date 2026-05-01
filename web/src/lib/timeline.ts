@@ -3,7 +3,14 @@ import { scaleTime } from "d3-scale";
 import { select } from "d3-selection";
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
 import "d3-transition";
-import type { CommitRecord, Dataset, HoverPayload, RepoData } from "./types";
+import type {
+  AutowareVersion,
+  CommitRecord,
+  Dataset,
+  HoverPayload,
+  RepoData,
+  VersionPin,
+} from "./types";
 
 interface TimelineCallbacks {
   onHover: (payload: HoverPayload) => void;
@@ -60,6 +67,7 @@ function buildLanes(repos: RepoData[]): { lanes: LaneDatum[]; height: number } {
 
 export interface Timeline {
   setDomain(domain: [Date, Date]): void;
+  setSelectedVersions(tags: Iterable<string>): void;
   resize(): void;
   destroy(): void;
 }
@@ -194,10 +202,22 @@ export function createTimeline(
     .attr("transform", `translate(0, -6)`)
     .attr("color", "var(--fg-muted)");
 
+  // version polylines (behind commits)
+  const versionLineGroup = root
+    .append("g")
+    .attr("class", "version-lines")
+    .attr("clip-path", "url(#plot-clip)");
+
   // commits group
   const commitsGroup = root
     .append("g")
     .attr("class", "commits")
+    .attr("clip-path", "url(#plot-clip)");
+
+  // version rings (above commits, so they remain visible around dots)
+  const versionRingGroup = root
+    .append("g")
+    .attr("class", "version-rings")
     .attr("clip-path", "url(#plot-clip)");
 
   // Data preparation: flatten commits with repo y-coordinate
@@ -240,6 +260,48 @@ export function createTimeline(
   for (const cd of allCommits) {
     if (cd.isPinned) pinnedByRepo.set(cd.repo.key, cd);
   }
+
+  // index repos by key for quick commit lookup
+  const repoByKey = new Map<string, RepoData>(
+    dataset.repos.map((r) => [r.key, r] as const),
+  );
+
+  // pre-compute, for each autoware version, the list of (date, y) points to
+  // draw rings around / connect with a polyline. Sorted by lane order.
+  type OverlayPoint = {
+    repoKey: string;
+    sha: string;
+    pinnedVersion: string;
+    date: Date;
+    y: number;
+    repo: RepoData;
+    commit: CommitRecord;
+  };
+  const overlayPointsByVersion = new Map<string, OverlayPoint[]>();
+  for (const v of dataset.versions ?? []) {
+    const pts: OverlayPoint[] = [];
+    for (const pin of v.pins as VersionPin[]) {
+      const lane = repoIndex.get(pin.repoKey);
+      const repo = repoByKey.get(pin.repoKey);
+      if (!lane || !repo) continue;
+      const commit = repo.commits.find((c) => c.sha === pin.sha);
+      if (!commit) continue;
+      pts.push({
+        repoKey: pin.repoKey,
+        sha: pin.sha,
+        pinnedVersion: pin.pinnedVersion,
+        date: new Date(commit.date),
+        y: lane.y,
+        repo,
+        commit,
+      });
+    }
+    pts.sort((a, b) => a.y - b.y);
+    overlayPointsByVersion.set(v.tag, pts);
+  }
+
+  // selection state
+  let selectedVersionTags = new Set<string>();
 
   // Base scales — set when we know width
   const xBase = scaleTime();
@@ -401,6 +463,116 @@ export function createTimeline(
       .merge(offSel)
       .attr("cx", (d) => (d.side === "left" ? edgeInset : width - edgeInset))
       .attr("cy", (d) => d.y);
+
+    // ---- version overlays (polylines + rings around pinned commits) ----
+    type SelectedOverlay = {
+      version: AutowareVersion;
+      points: OverlayPoint[];
+      idx: number; // index among the currently-selected versions
+    };
+    const orderedVersions = (dataset.versions ?? []).filter((v) =>
+      selectedVersionTags.has(v.tag),
+    );
+    const selectedOverlays: SelectedOverlay[] = orderedVersions.map(
+      (version, idx) => ({
+        version,
+        points: overlayPointsByVersion.get(version.tag) ?? [],
+        idx,
+      }),
+    );
+
+    // polylines
+    const lineSel = versionLineGroup
+      .selectAll<SVGPathElement, SelectedOverlay>("path.version-line")
+      .data(selectedOverlays, (d) => d.version.tag);
+    lineSel.exit().remove();
+    const lineEnter = lineSel
+      .enter()
+      .append("path")
+      .attr("class", "version-line")
+      .attr("fill", "none")
+      .attr("stroke-width", 1.6)
+      .attr("stroke-linejoin", "round")
+      .attr("stroke-linecap", "round")
+      .attr("opacity", 0.85)
+      .style("pointer-events", "none");
+
+    lineEnter
+      .merge(lineSel)
+      .attr("stroke", (d) => d.version.color)
+      .attr("d", (d) => {
+        if (d.points.length === 0) return "";
+        const segs = d.points.map(
+          (p) => `${xCurrent(p.date).toFixed(2)},${p.y.toFixed(2)}`,
+        );
+        return "M" + segs.join("L");
+      });
+
+    // rings
+    type RingDatum = {
+      version: AutowareVersion;
+      point: OverlayPoint;
+      idx: number;
+    };
+    const ringData: RingDatum[] = [];
+    for (const o of selectedOverlays) {
+      for (const p of o.points) {
+        ringData.push({ version: o.version, point: p, idx: o.idx });
+      }
+    }
+    const ringSel = versionRingGroup
+      .selectAll<SVGCircleElement, RingDatum>("circle.version-ring")
+      .data(ringData, (d) => `${d.version.tag}|${d.point.repoKey}`);
+    ringSel.exit().remove();
+    const ringEnter = ringSel
+      .enter()
+      .append("circle")
+      .attr("class", "version-ring")
+      .attr("fill", "none")
+      .attr("stroke-width", 2)
+      .style("cursor", "pointer")
+      .on("mouseover", function (
+        this: SVGCircleElement,
+        event: MouseEvent,
+        d: RingDatum,
+      ) {
+        select(this).attr("stroke-width", 3);
+        callbacks.onHover({
+          repo: d.point.repo,
+          commit: d.point.commit,
+          isPinned: d.point.sha === d.point.repo.pinnedSha,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        });
+      })
+      .on("mousemove", (event: MouseEvent, d: RingDatum) => {
+        callbacks.onHover({
+          repo: d.point.repo,
+          commit: d.point.commit,
+          isPinned: d.point.sha === d.point.repo.pinnedSha,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        });
+      })
+      .on("mouseout", function (this: SVGCircleElement) {
+        select(this).attr("stroke-width", 2);
+        callbacks.onLeave();
+      })
+      .on("click", (_event: MouseEvent, d: RingDatum) => {
+        window.open(d.point.commit.url, "_blank", "noopener,noreferrer");
+      });
+
+    ringEnter
+      .merge(ringSel)
+      .attr("stroke", (d) => d.version.color)
+      .attr("r", (d) => 9 + d.idx * 2.5)
+      .attr("cx", (d) => xCurrent(d.point.date))
+      .attr("cy", (d) => d.point.y);
+  }
+
+  function setSelectedVersions(tags: Iterable<string>): void {
+    selectedVersionTags = new Set(tags);
+    render();
   }
 
   // Zoom behavior — X only. Attached to the inner `root` group so the cursor
@@ -448,6 +620,7 @@ export function createTimeline(
 
   return {
     setDomain,
+    setSelectedVersions,
     resize,
     destroy() {
       root.on(".zoom", null);

@@ -6,6 +6,7 @@
 
   export let dataset: Dataset;
   export let range: RangeKey;
+  export let selectedVersions: Set<string> = new Set();
   export let onHover: (p: HoverPayload) => void;
   export let onLeave: () => void;
 
@@ -17,6 +18,10 @@
 
   $: if (timeline) {
     timeline.setDomain(rangeToDomain(range, dataMin));
+  }
+
+  $: if (timeline) {
+    timeline.setSelectedVersions(selectedVersions);
   }
 
   onMount(() => {
@@ -31,6 +36,7 @@
 
     timeline = createTimeline(svgEl, dataset, { onHover, onLeave });
     timeline.setDomain(rangeToDomain(range, dataMin));
+    timeline.setSelectedVersions(selectedVersions);
 
     resizeObserver = new ResizeObserver(() => {
       timeline?.resize();

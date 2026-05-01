@@ -3,6 +3,7 @@
   import RangePicker from "./components/RangePicker.svelte";
   import Timeline from "./components/Timeline.svelte";
   import Tooltip from "./components/Tooltip.svelte";
+  import VersionSidebar from "./components/VersionSidebar.svelte";
   import type { Dataset, HoverPayload, RangeKey } from "./lib/types";
   import { parseRangeFromQuery, writeRangeToQuery } from "./lib/range";
   import { formatDateTime } from "./lib/format";
@@ -11,6 +12,7 @@
   let loadError: string | null = null;
   let range: RangeKey = parseRangeFromQuery();
   let hover: HoverPayload | null = null;
+  let selectedVersions: Set<string> = new Set();
 
   onMount(async () => {
     try {
@@ -34,6 +36,10 @@
 
   function handleLeave(): void {
     hover = null;
+  }
+
+  function handleVersionsChange(next: Set<string>): void {
+    selectedVersions = next;
   }
 </script>
 
@@ -65,12 +71,22 @@
       </p>
     </div>
   {:else if dataset}
-    <Timeline
-      {dataset}
-      {range}
-      onHover={handleHover}
-      onLeave={handleLeave}
-    />
+    <div class="layout">
+      <div class="chart">
+        <Timeline
+          {dataset}
+          {range}
+          {selectedVersions}
+          onHover={handleHover}
+          onLeave={handleLeave}
+        />
+      </div>
+      <VersionSidebar
+        versions={dataset.versions}
+        selected={selectedVersions}
+        onChange={handleVersionsChange}
+      />
+    </div>
   {:else}
     <div class="loading">loading commits…</div>
   {/if}
@@ -150,7 +166,19 @@
   }
 
   main {
-    padding: 16px 24px 32px;
+    padding: 0;
+  }
+
+  .layout {
+    display: flex;
+    align-items: stretch;
+    min-height: calc(100vh - 60px);
+  }
+
+  .chart {
+    flex: 1;
+    min-width: 0;
+    padding: 16px 0 32px 24px;
   }
 
   .loading,

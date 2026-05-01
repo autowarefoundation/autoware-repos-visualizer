@@ -1,18 +1,21 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import yaml from "js-yaml";
+import { interpolateSpectral } from "d3-scale-chromatic";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(HERE, "..");
 const PROJECT_ROOT = resolve(WEB_ROOT, "..");
-const REPOS_FILE = resolve(PROJECT_ROOT, "repositories", "autoware.repos");
 const SRC_ROOT = resolve(PROJECT_ROOT, "src");
+const META_DIR = resolve(PROJECT_ROOT, "repositories", "autoware-meta");
 const OUT_FILE = resolve(WEB_ROOT, "public", "data", "commits.json");
 
 const UNIT = "\x1f"; // unit separator
 const RECORD = "\x1e"; // record separator
+
+const SEMVER_TAG = /^v?\d+\.\d+\.\d+$/;
 
 interface ReposFile {
   repositories: Record<
@@ -44,9 +47,24 @@ interface RepoData {
   commits: CommitRecord[];
 }
 
+interface VersionPin {
+  repoKey: string;       // current key (after rename matching)
+  sha: string;           // resolved commit
+  pinnedVersion: string; // raw version string from historical autoware.repos
+}
+
+interface AutowareVersion {
+  tag: string;          // "1.7.1" or "main"
+  isMain: boolean;
+  releasedAt: string;   // ISO
+  color: string;        // CSS color string
+  pins: VersionPin[];
+}
+
 interface Dataset {
   generatedAt: string;
   repos: RepoData[];
+  versions: AutowareVersion[];
 }
 
 function git(dir: string, args: string[]): string {
@@ -218,11 +236,150 @@ function processRepo(
   };
 }
 
+interface RepoIndex {
+  byUrl: Map<string, string>;       // canonical url -> current key
+  byLastSegment: Map<string, string>; // last url path segment -> current key
+}
+
+function buildRepoIndex(repos: RepoData[]): RepoIndex {
+  const byUrl = new Map<string, string>();
+  const byLastSegment = new Map<string, string>();
+  for (const r of repos) {
+    byUrl.set(r.remoteUrl, r.key);
+    const seg = r.remoteUrl.split("/").pop();
+    if (seg && !byLastSegment.has(seg)) byLastSegment.set(seg, r.key);
+  }
+  return { byUrl, byLastSegment };
+}
+
+function matchToCurrentRepo(
+  historicalUrl: string,
+  idx: RepoIndex,
+): string | null {
+  const url = normalizeRemoteUrl(historicalUrl);
+  const direct = idx.byUrl.get(url);
+  if (direct) return direct;
+  const seg = url.split("/").pop();
+  if (seg) return idx.byLastSegment.get(seg) ?? null;
+  return null;
+}
+
+function loadAutowareReposAtRef(ref: string): ReposFile | null {
+  const candidates = ["autoware.repos", "repositories/autoware.repos"];
+  for (const path of candidates) {
+    const raw = tryGit(META_DIR, ["show", `${ref}:${path}`]);
+    if (raw) {
+      try {
+        return yaml.load(raw) as ReposFile;
+      } catch (e) {
+        console.warn(`  ! ${ref}: failed to parse ${path}: ${(e as Error).message}`);
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+function processVersion(
+  ref: string,
+  isMain: boolean,
+  color: string,
+  idx: RepoIndex,
+): AutowareVersion | null {
+  const releasedAt = tryGit(META_DIR, ["log", "-1", "--format=%cI", ref]);
+  if (!releasedAt) {
+    console.warn(`  ! ${ref}: cannot resolve commit date`);
+    return null;
+  }
+  const reposFile = loadAutowareReposAtRef(ref);
+  if (!reposFile?.repositories) {
+    console.warn(`  ! ${ref}: no autoware.repos found`);
+    return null;
+  }
+
+  const pins: VersionPin[] = [];
+  let dropRemoved = 0;
+  let dropUnresolved = 0;
+  for (const [, entry] of Object.entries(reposFile.repositories)) {
+    if (!entry?.url || !entry?.version) continue;
+    const currentKey = matchToCurrentRepo(entry.url, idx);
+    if (!currentKey) {
+      dropRemoved++;
+      continue;
+    }
+    const dir = resolve(SRC_ROOT, currentKey);
+    if (!existsSync(dir)) {
+      dropUnresolved++;
+      continue;
+    }
+    const sha = tryGit(dir, ["rev-parse", `${entry.version}^{commit}`]);
+    if (!sha) {
+      dropUnresolved++;
+      continue;
+    }
+    pins.push({ repoKey: currentKey, sha, pinnedVersion: entry.version });
+  }
+
+  console.log(
+    `  ${ref.padEnd(8)} ${releasedAt.slice(0, 10)}  pins=${String(pins.length).padStart(2)}  removed=${dropRemoved}  unresolved=${dropUnresolved}`,
+  );
+
+  return { tag: ref, isMain, releasedAt, color, pins };
+}
+
+function processVersions(idx: RepoIndex): AutowareVersion[] {
+  if (!existsSync(META_DIR)) {
+    console.warn(`Skipping versions: meta repo not found at ${META_DIR}`);
+    return [];
+  }
+
+  // strict MAJOR.MINOR.PATCH (with optional leading "v")
+  const tagsRaw = tryGit(META_DIR, ["tag"]) ?? "";
+  const tags = tagsRaw
+    .split("\n")
+    .map((t) => t.trim())
+    .filter((t) => SEMVER_TAG.test(t));
+
+  // resolve each tag's commit date so we can sort chronologically
+  const dated: { ref: string; date: string; isMain: boolean }[] = [];
+  for (const tag of tags) {
+    const date = tryGit(META_DIR, ["log", "-1", "--format=%cI", tag]);
+    if (date) dated.push({ ref: tag, date, isMain: false });
+  }
+
+  // include main HEAD as a synthetic "main" entry, dated to its commit
+  const mainDate = tryGit(META_DIR, ["log", "-1", "--format=%cI", "main"]);
+  if (mainDate) dated.push({ ref: "main", date: mainDate, isMain: true });
+
+  dated.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  console.log(`\nProcessing ${dated.length} autoware versions...`);
+  const versions: AutowareVersion[] = [];
+  for (let i = 0; i < dated.length; i++) {
+    const t = dated[i];
+    const fraction = dated.length === 1 ? 0.5 : i / (dated.length - 1);
+    // shift inward to skip the muddy ends of the spectral palette
+    const color = interpolateSpectral(0.05 + 0.9 * fraction);
+    const v = processVersion(t.ref, t.isMain, color, idx);
+    if (v) versions.push(v);
+  }
+  return versions;
+}
+
 function main(): void {
-  const yamlText = readFileSync(REPOS_FILE, "utf8");
-  const parsed = yaml.load(yamlText) as ReposFile | null;
+  if (!existsSync(META_DIR)) {
+    throw new Error(
+      `autoware-meta clone not found at ${META_DIR}. ` +
+        `Run: git clone https://github.com/autowarefoundation/autoware.git ${META_DIR}`,
+    );
+  }
+
+  // Source of truth for the "current" pin set is the meta repo's main branch.
+  const parsed = loadAutowareReposAtRef("main");
   if (!parsed?.repositories) {
-    throw new Error(`No "repositories" key in ${REPOS_FILE}`);
+    throw new Error(
+      `Cannot read autoware.repos from autoware-meta:main`,
+    );
   }
 
   const repos: RepoData[] = [];
@@ -232,15 +389,19 @@ function main(): void {
     if (data) repos.push(data);
   }
 
+  const idx = buildRepoIndex(repos);
+  const versions = processVersions(idx);
+
   const dataset: Dataset = {
     generatedAt: new Date().toISOString(),
     repos,
+    versions,
   };
 
   mkdirSync(dirname(OUT_FILE), { recursive: true });
   writeFileSync(OUT_FILE, JSON.stringify(dataset));
 
-  console.log("\nSummary:");
+  console.log("\nRepo summary:");
   console.log(
     "  repo".padEnd(60) +
       "commits".padStart(8) +
