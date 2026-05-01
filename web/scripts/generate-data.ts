@@ -11,8 +11,6 @@ const REPOS_FILE = resolve(PROJECT_ROOT, "repositories", "autoware.repos");
 const SRC_ROOT = resolve(PROJECT_ROOT, "src");
 const OUT_FILE = resolve(WEB_ROOT, "public", "data", "commits.json");
 
-const WINDOW_MONTHS = 24;
-
 const UNIT = "\x1f"; // unit separator
 const RECORD = "\x1e"; // record separator
 
@@ -48,7 +46,6 @@ interface RepoData {
 
 interface Dataset {
   generatedAt: string;
-  windowMonths: number;
   repos: RepoData[];
 }
 
@@ -193,12 +190,12 @@ function processRepo(
   const raw = tryGit(dir, [
     "log",
     branchRef,
-    `--since=${WINDOW_MONTHS} months ago`,
     `--format=%H${UNIT}%h${UNIT}%cI${UNIT}%an${UNIT}%s${RECORD}`,
   ]);
   const commits = raw ? parseCommits(raw, remoteUrl) : [];
 
-  // make sure the pinned commit is included even if older than window
+  // safety belt: ensure the pinned commit is included even if it isn't reachable
+  // from the default branch (e.g. shallow clones, detached tags).
   if (!commits.some((c) => c.sha === pinnedSha)) {
     const pinned = loadCommitByRef(dir, pinnedSha, remoteUrl);
     if (pinned) commits.push(pinned);
@@ -237,7 +234,6 @@ function main(): void {
 
   const dataset: Dataset = {
     generatedAt: new Date().toISOString(),
-    windowMonths: WINDOW_MONTHS,
     repos,
   };
 

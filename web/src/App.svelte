@@ -42,8 +42,7 @@
     <h1>autoware repos pin tracker</h1>
     {#if dataset}
       <span class="meta">
-        snapshot · generated {formatDateTime(dataset.generatedAt)} · last
-        {dataset.windowMonths}mo
+        snapshot · generated {formatDateTime(dataset.generatedAt)} · full history
       </span>
     {/if}
   </div>

@@ -23,7 +23,6 @@ export interface RepoData {
 
 export interface Dataset {
   generatedAt: string;
-  windowMonths: number;
   repos: RepoData[];
 }
 
