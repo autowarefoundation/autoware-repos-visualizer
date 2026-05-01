@@ -66,8 +66,16 @@ jobs:
           mkdir -p src
           vcs import src < autoware-meta/autoware/repositories/autoware.repos --skip-existing
 
+          # vcs pull updates each clone via `git pull`. Repos checked out on a
+          # detached HEAD (the common case after vcs import to a tag) get an
+          # error and are skipped — that's fine, the fetch loop below covers
+          # them. We allow non-zero exit because vcstool returns failure if any
+          # single repo fails.
+          vcs pull src || true
+
           # Off-branch tags are required for the historical-pin injection step
-          # in generate-data.ts, so we always fetch --tags here.
+          # in generate-data.ts, so we always fetch --tags here even when
+          # vcs pull succeeded (which doesn't update tags by default).
           while IFS= read -r gitdir; do
             repo="$(dirname "$gitdir")"
             git -C "$repo" fetch --all --tags --prune --quiet || true
