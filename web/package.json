@@ -6,7 +6,8 @@
   "scripts": {
     "data": "tsx scripts/generate-data.ts",
     "dev": "vite",
-    "build": "npm run data && svelte-check --tsconfig ./tsconfig.json && vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "build": "npm run check && vite build",
     "preview": "vite preview --host"
   },
   "dependencies": {

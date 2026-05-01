@@ -1,0 +1,91 @@
+name: update-data
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Restore repo clones cache
+        id: clones-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            autoware-meta
+            src
+          key: repo-clones-v1
+
+      - name: Set up vcstool
+        run: pip install --user vcstool
+
+      - name: Sync autoware-meta and sub-repos
+        run: |
+          set -euo pipefail
+          # Meta repo: full history needed for tag walking.
+          if [ -d autoware-meta/autoware/.git ]; then
+            git -C autoware-meta/autoware fetch --all --tags --prune --quiet
+            git -C autoware-meta/autoware checkout main --quiet
+            git -C autoware-meta/autoware reset --hard origin/main --quiet
+          else
+            mkdir -p autoware-meta
+            git clone --quiet https://github.com/autowarefoundation/autoware.git autoware-meta/autoware
+          fi
+
+          # Sub-repos: vcs import skips entries that already have clones.
+          mkdir -p src
+          vcs import src < autoware-meta/autoware/repositories/autoware.repos --skip-existing
+
+          # Refresh existing clones so they pick up new commits and tags.
+          # Off-branch tags are required for the historical-pin injection step
+          # in generate-data.ts, so we always fetch --tags here.
+          while IFS= read -r gitdir; do
+            repo="$(dirname "$gitdir")"
+            git -C "$repo" fetch --all --tags --prune --quiet || true
+          done < <(find src -type d -name .git -prune)
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci
+
+      - name: Generate commits.json
+        working-directory: web
+        run: npm run data
+
+      - name: Publish data branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/data-branch
+          cd /tmp/data-branch
+          git init --quiet -b data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp "$GITHUB_WORKSPACE/web/public/data/commits.json" .
+          git add commits.json
+          git commit --quiet -m "data: refresh snapshot $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force --quiet origin data
