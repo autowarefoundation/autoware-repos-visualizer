@@ -9,7 +9,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(HERE, "..");
 const PROJECT_ROOT = resolve(WEB_ROOT, "..");
 const SRC_ROOT = resolve(PROJECT_ROOT, "src");
-const META_DIR = resolve(PROJECT_ROOT, "repositories", "autoware-meta");
+const META_DIR = resolve(PROJECT_ROOT, "autoware-meta", "autoware");
 const OUT_FILE = resolve(WEB_ROOT, "public", "data", "commits.json");
 
 const UNIT = "\x1f"; // unit separator
