@@ -228,6 +228,19 @@ export function createTimeline(
     a.isPinned === b.isPinned ? 0 : a.isPinned ? 1 : -1,
   );
 
+  // pre-compute pinned-commit datum per repo for off-view indicators
+  type OffViewDatum = {
+    repo: RepoData;
+    commit: CommitRecord;
+    y: number;
+    date: Date;
+    side: "left" | "right";
+  };
+  const pinnedByRepo = new Map<string, CommitDatum>();
+  for (const cd of allCommits) {
+    if (cd.isPinned) pinnedByRepo.set(cd.repo.key, cd);
+  }
+
   // Base scales — set when we know width
   const xBase = scaleTime();
   let xCurrent = xBase.copy();
@@ -314,6 +327,79 @@ export function createTimeline(
     enter
       .merge(sel)
       .attr("cx", (d) => xCurrent(d.date))
+      .attr("cy", (d) => d.y);
+
+    // off-view pinned indicators: hollow accent rings at the lane edge for
+    // each repo whose pinned commit lies outside the visible domain.
+    // Reversed range: newer-than-d1 → off the LEFT edge; older-than-d0 → off
+    // the RIGHT edge.
+    const offMarkers: OffViewDatum[] = [];
+    for (const pinned of pinnedByRepo.values()) {
+      if (pinned.date > d1) {
+        offMarkers.push({
+          repo: pinned.repo,
+          commit: pinned.commit,
+          y: pinned.y,
+          date: pinned.date,
+          side: "left",
+        });
+      } else if (pinned.date < d0) {
+        offMarkers.push({
+          repo: pinned.repo,
+          commit: pinned.commit,
+          y: pinned.y,
+          date: pinned.date,
+          side: "right",
+        });
+      }
+    }
+
+    const offSel = commitsGroup
+      .selectAll<SVGCircleElement, OffViewDatum>("circle.offview")
+      .data(offMarkers, (d) => d.repo.key);
+
+    offSel.exit().remove();
+
+    const offEnter = offSel
+      .enter()
+      .append("circle")
+      .attr("class", "offview")
+      .attr("r", PINNED_RADIUS - 1)
+      .attr("fill", "none")
+      .attr("stroke", "var(--accent)")
+      .attr("stroke-width", 2)
+      .style("cursor", "pointer")
+      .on("mouseover", function (this: SVGCircleElement, event: MouseEvent, d: OffViewDatum) {
+        select(this).attr("stroke-width", 3);
+        callbacks.onHover({
+          repo: d.repo,
+          commit: d.commit,
+          isPinned: true,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        });
+      })
+      .on("mousemove", (event: MouseEvent, d: OffViewDatum) => {
+        callbacks.onHover({
+          repo: d.repo,
+          commit: d.commit,
+          isPinned: true,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        });
+      })
+      .on("mouseout", function (this: SVGCircleElement) {
+        select(this).attr("stroke-width", 2);
+        callbacks.onLeave();
+      })
+      .on("click", (_event: MouseEvent, d: OffViewDatum) => {
+        window.open(d.commit.url, "_blank", "noopener,noreferrer");
+      });
+
+    const edgeInset = PINNED_RADIUS + 2;
+    offEnter
+      .merge(offSel)
+      .attr("cx", (d) => (d.side === "left" ? edgeInset : width - edgeInset))
       .attr("cy", (d) => d.y);
   }
 
