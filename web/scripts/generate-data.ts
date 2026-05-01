@@ -392,6 +392,34 @@ function main(): void {
   const idx = buildRepoIndex(repos);
   const versions = processVersions(idx);
 
+  // Some historical pins point at commits that aren't reachable from the
+  // default branch (e.g. release tags on maintenance branches). Inject those
+  // commits into the relevant repo's commit list so the timeline can render
+  // a ring/polyline at the right (date, lane) coordinate.
+  const repoByKey = new Map(repos.map((r) => [r.key, r]));
+  let injected = 0;
+  for (const v of versions) {
+    for (const pin of v.pins) {
+      const repo = repoByKey.get(pin.repoKey);
+      if (!repo) continue;
+      if (repo.commits.some((c) => c.sha === pin.sha)) continue;
+      const dir = resolve(SRC_ROOT, repo.key);
+      const c = loadCommitByRef(dir, pin.sha, repo.remoteUrl);
+      if (c) {
+        repo.commits.push(c);
+        injected++;
+      }
+    }
+  }
+  if (injected > 0) {
+    for (const r of repos) {
+      r.commits.sort((a, b) =>
+        a.date < b.date ? 1 : a.date > b.date ? -1 : 0,
+      );
+    }
+    console.log(`\nInjected ${injected} off-branch pinned commit(s) into repo lists.`);
+  }
+
   const dataset: Dataset = {
     generatedAt: new Date().toISOString(),
     repos,
