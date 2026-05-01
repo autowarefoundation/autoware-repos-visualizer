@@ -578,8 +578,17 @@ export function createTimeline(
   // Zoom behavior — X only. Attached to the inner `root` group so the cursor
   // coordinates d3-zoom uses for anchoring are in the same local space as
   // xBase's range; otherwise the wheel anchor is offset by MARGIN.left.
+  // Cap chosen so the tightest preset (1D over the full data span) is reachable,
+  // with headroom to wheel down to ~12h. 1d minimum window prevents runaway zoom
+  // beyond what time scales render cleanly.
+  const fullSpanDays = Math.max(
+    1,
+    (+dataMax - +dataMin) / 86_400_000,
+  );
+  const maxZoom = Math.max(1000, fullSpanDays * 2);
+
   const z: ZoomBehavior<SVGGElement, unknown> = zoom<SVGGElement, unknown>()
-    .scaleExtent([1, 400])
+    .scaleExtent([1, maxZoom])
     .on("zoom", (event) => {
       const t: ZoomTransform = event.transform;
       xCurrent = t.rescaleX(xBase);
