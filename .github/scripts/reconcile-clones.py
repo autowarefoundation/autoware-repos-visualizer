@@ -94,9 +94,7 @@ def main() -> int:
         data = yaml.safe_load(f)
     repos: dict[str, dict] = data.get("repositories") or {}
 
-    expected_paths = {
-        os.path.normpath(os.path.join(SRC_ROOT, key)) for key in repos
-    }
+    expected_paths = {os.path.normpath(os.path.join(SRC_ROOT, key)) for key in repos}
     actual_paths = find_clone_paths(SRC_ROOT)
 
     # 1. Remove clones at paths no longer in autoware.repos.

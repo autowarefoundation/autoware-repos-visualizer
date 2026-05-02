@@ -18,10 +18,7 @@ const RECORD = "\x1e"; // record separator
 const SEMVER_TAG = /^v?\d+\.\d+\.\d+$/;
 
 interface ReposFile {
-  repositories: Record<
-    string,
-    { type: string; url: string; version: string }
-  >;
+  repositories: Record<string, { type: string; url: string; version: string }>;
 }
 
 interface CommitRecord {
@@ -48,17 +45,17 @@ interface RepoData {
 }
 
 interface VersionPin {
-  repoKey: string;       // current key (after rename matching)
-  sha: string;           // resolved commit
+  repoKey: string; // current key (after rename matching)
+  sha: string; // resolved commit
   pinnedVersion: string; // raw version string from historical autoware.repos
 }
 
 interface AutowareVersion {
-  tag: string;          // "1.7.1" or "main"
+  tag: string; // "1.7.1" or "main"
   isMain: boolean;
-  releasedAt: string;   // ISO
-  color: string;        // CSS color string
-  metaSha: string;      // commit on autoware-meta this tag points to
+  releasedAt: string; // ISO
+  color: string; // CSS color string
+  metaSha: string; // commit on autoware-meta this tag points to
   pins: VersionPin[];
 }
 
@@ -124,7 +121,15 @@ function detectDefaultBranch(dir: string): string {
 }
 
 function classifyRef(dir: string, version: string): PinnedRefKind {
-  if (tryGit(dir, ["show-ref", "--tags", "--verify", "--quiet", `refs/tags/${version}`]) !== null) {
+  if (
+    tryGit(dir, [
+      "show-ref",
+      "--tags",
+      "--verify",
+      "--quiet",
+      `refs/tags/${version}`,
+    ]) !== null
+  ) {
     return "tag";
   }
   if (
@@ -134,8 +139,12 @@ function classifyRef(dir: string, version: string): PinnedRefKind {
       "--quiet",
       `refs/remotes/origin/${version}`,
     ]) !== null ||
-    tryGit(dir, ["show-ref", "--verify", "--quiet", `refs/heads/${version}`]) !==
-      null
+    tryGit(dir, [
+      "show-ref",
+      "--verify",
+      "--quiet",
+      `refs/heads/${version}`,
+    ]) !== null
   ) {
     return "branch";
   }
@@ -241,7 +250,7 @@ function processRepo(
 }
 
 interface RepoIndex {
-  byUrl: Map<string, string>;       // canonical url -> current key
+  byUrl: Map<string, string>; // canonical url -> current key
   byLastSegment: Map<string, string>; // last url path segment -> current key
 }
 
@@ -276,7 +285,9 @@ function loadAutowareReposAtRef(ref: string): ReposFile | null {
       try {
         return yaml.load(raw) as ReposFile;
       } catch (e) {
-        console.warn(`  ! ${ref}: failed to parse ${path}: ${(e as Error).message}`);
+        console.warn(
+          `  ! ${ref}: failed to parse ${path}: ${(e as Error).message}`,
+        );
         return null;
       }
     }
@@ -409,9 +420,7 @@ function main(): void {
   // Source of truth for the "current" pin set is the meta repo's main branch.
   const parsed = loadAutowareReposAtRef("main");
   if (!parsed?.repositories) {
-    throw new Error(
-      `Cannot read autoware.repos from autoware-meta:main`,
-    );
+    throw new Error(`Cannot read autoware.repos from autoware-meta:main`);
   }
 
   const repos: RepoData[] = [];
@@ -450,7 +459,8 @@ function main(): void {
       const repo = repoByKey.get(pin.repoKey);
       if (!repo) continue;
       if (repo.commits.some((c) => c.sha === pin.sha)) continue;
-      const dir = repo.key === META_KEY ? META_DIR : resolve(SRC_ROOT, repo.key);
+      const dir =
+        repo.key === META_KEY ? META_DIR : resolve(SRC_ROOT, repo.key);
       const c = loadCommitByRef(dir, pin.sha, repo.remoteUrl);
       if (c) {
         repo.commits.push(c);
@@ -464,7 +474,9 @@ function main(): void {
         a.date < b.date ? 1 : a.date > b.date ? -1 : 0,
       );
     }
-    console.log(`\nInjected ${injected} off-branch pinned commit(s) into repo lists.`);
+    console.log(
+      `\nInjected ${injected} off-branch pinned commit(s) into repo lists.`,
+    );
   }
 
   const dataset: Dataset = {
@@ -477,11 +489,7 @@ function main(): void {
   writeFileSync(OUT_FILE, JSON.stringify(dataset));
 
   console.log("\nRepo summary:");
-  console.log(
-    "  repo".padEnd(60) +
-      "commits".padStart(8) +
-      "  pinned",
-  );
+  console.log("  repo".padEnd(60) + "commits".padStart(8) + "  pinned");
   for (const r of repos) {
     const pinnedShort = r.pinnedSha.slice(0, 7);
     console.log(

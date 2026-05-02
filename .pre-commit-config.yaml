@@ -1,0 +1,42 @@
+# Setup:  pipx install pre-commit
+# Install hook (per clone, not global):  pre-commit install
+# Run once across the tree:  pre-commit run --all-files
+
+exclude: |
+  (?x)^(
+    web/node_modules/.*|
+    web/dist/.*|
+    web/public/data/.*|
+    web/package-lock\.json|
+    autoware-meta/.*|
+    src/.*
+  )$
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: mixed-line-ending
+
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: v3.3.3
+    hooks:
+      - id: prettier
+        types_or: [ts, javascript, svelte, css, html, json, yaml, markdown]
+        additional_dependencies:
+          - prettier@3.3.3
+          - prettier-plugin-svelte@3.2.6
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format

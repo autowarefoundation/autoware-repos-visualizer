@@ -14,11 +14,10 @@
   --tooltip-bg: #1c1f24;
   --tooltip-fg: #f5f6f8;
   --shadow: 0 6px 18px rgba(15, 20, 28, 0.12);
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, sans-serif;
-  --font-mono:
-    ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas,
+    monospace;
 }
 
 @media (prefers-color-scheme: dark) {

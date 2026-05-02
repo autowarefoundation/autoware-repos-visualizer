@@ -1,7 +1,12 @@
 import { axisTop } from "d3-axis";
 import { scaleTime } from "d3-scale";
 import { select } from "d3-selection";
-import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
+import {
+  zoom,
+  zoomIdentity,
+  type ZoomBehavior,
+  type ZoomTransform,
+} from "d3-zoom";
 import "d3-transition";
 import type {
   AutowareVersion,
@@ -104,8 +109,7 @@ export function createTimeline(
   const svg = select(svgEl);
   svg.selectAll("*").remove();
 
-  const totalHeight =
-    contentHeight + MARGIN.top + MARGIN.bottom;
+  const totalHeight = contentHeight + MARGIN.top + MARGIN.bottom;
   svgEl.setAttribute("height", String(totalHeight));
   svgEl.setAttribute("width", "100%");
 
@@ -359,7 +363,9 @@ export function createTimeline(
     xCurrent.range([width, 0]);
     defs.select("rect").attr("width", width);
     captureRect.attr("width", width);
-    lanesGroup.selectAll<SVGLineElement, LaneDatum>("line.lane").attr("x2", width);
+    lanesGroup
+      .selectAll<SVGLineElement, LaneDatum>("line.lane")
+      .attr("x2", width);
   }
 
   function setBaseDomain(domain: [Date, Date]): void {
@@ -396,7 +402,11 @@ export function createTimeline(
     sel.exit().remove();
 
     const radiusFor = (d: CommitDatum): number =>
-      d.isPinned ? PINNED_RADIUS : d.metaVersion ? PINNED_RADIUS - 1 : COMMIT_RADIUS;
+      d.isPinned
+        ? PINNED_RADIUS
+        : d.metaVersion
+          ? PINNED_RADIUS - 1
+          : COMMIT_RADIUS;
     const fillFor = (d: CommitDatum): string =>
       d.isPinned
         ? "var(--accent)"
@@ -411,28 +421,36 @@ export function createTimeline(
     const enter = sel
       .enter()
       .append("circle")
-      .attr("class", (d) =>
-        "commit" +
-        (d.isPinned ? " pinned" : "") +
-        (d.metaVersion ? " meta-version" : ""),
+      .attr(
+        "class",
+        (d) =>
+          "commit" +
+          (d.isPinned ? " pinned" : "") +
+          (d.metaVersion ? " meta-version" : ""),
       )
       .attr("r", radiusFor)
       .attr("fill", fillFor)
       .attr("stroke", strokeFor)
       .attr("stroke-width", strokeWidthFor)
       .style("cursor", "pointer")
-      .on("mouseover", function (this: SVGCircleElement, event: MouseEvent, d: CommitDatum) {
-        select(this)
-          .attr("r", radiusFor(d) + 2)
-          .attr("fill", d.metaVersion || d.isPinned ? fillFor(d) : "var(--commit-hover)");
-        callbacks.onHover({
-          repo: d.repo,
-          commit: d.commit,
-          isPinned: d.isPinned,
-          clientX: event.clientX,
-          clientY: event.clientY,
-        });
-      })
+      .on(
+        "mouseover",
+        function (this: SVGCircleElement, event: MouseEvent, d: CommitDatum) {
+          select(this)
+            .attr("r", radiusFor(d) + 2)
+            .attr(
+              "fill",
+              d.metaVersion || d.isPinned ? fillFor(d) : "var(--commit-hover)",
+            );
+          callbacks.onHover({
+            repo: d.repo,
+            commit: d.commit,
+            isPinned: d.isPinned,
+            clientX: event.clientX,
+            clientY: event.clientY,
+          });
+        },
+      )
       .on("mousemove", (event: MouseEvent, d: CommitDatum) => {
         callbacks.onHover({
           repo: d.repo,
@@ -442,10 +460,13 @@ export function createTimeline(
           clientY: event.clientY,
         });
       })
-      .on("mouseout", function (this: SVGCircleElement, _event: MouseEvent, d: CommitDatum) {
-        select(this).attr("r", radiusFor(d)).attr("fill", fillFor(d));
-        callbacks.onLeave();
-      })
+      .on(
+        "mouseout",
+        function (this: SVGCircleElement, _event: MouseEvent, d: CommitDatum) {
+          select(this).attr("r", radiusFor(d)).attr("fill", fillFor(d));
+          callbacks.onLeave();
+        },
+      )
       .on("click", (_event: MouseEvent, d: CommitDatum) => {
         window.open(d.commit.url, "_blank", "noopener,noreferrer");
       });
@@ -495,16 +516,19 @@ export function createTimeline(
       .attr("stroke", "var(--accent)")
       .attr("stroke-width", 2)
       .style("cursor", "pointer")
-      .on("mouseover", function (this: SVGCircleElement, event: MouseEvent, d: OffViewDatum) {
-        select(this).attr("stroke-width", 3);
-        callbacks.onHover({
-          repo: d.repo,
-          commit: d.commit,
-          isPinned: true,
-          clientX: event.clientX,
-          clientY: event.clientY,
-        });
-      })
+      .on(
+        "mouseover",
+        function (this: SVGCircleElement, event: MouseEvent, d: OffViewDatum) {
+          select(this).attr("stroke-width", 3);
+          callbacks.onHover({
+            repo: d.repo,
+            commit: d.commit,
+            isPinned: true,
+            clientX: event.clientX,
+            clientY: event.clientY,
+          });
+        },
+      )
       .on("mousemove", (event: MouseEvent, d: OffViewDatum) => {
         callbacks.onHover({
           repo: d.repo,
@@ -595,20 +619,19 @@ export function createTimeline(
       .attr("fill", "none")
       .attr("stroke-width", 2)
       .style("cursor", "pointer")
-      .on("mouseover", function (
-        this: SVGCircleElement,
-        event: MouseEvent,
-        d: RingDatum,
-      ) {
-        select(this).attr("stroke-width", 3);
-        callbacks.onHover({
-          repo: d.point.repo,
-          commit: d.point.commit,
-          isPinned: d.point.sha === d.point.repo.pinnedSha,
-          clientX: event.clientX,
-          clientY: event.clientY,
-        });
-      })
+      .on(
+        "mouseover",
+        function (this: SVGCircleElement, event: MouseEvent, d: RingDatum) {
+          select(this).attr("stroke-width", 3);
+          callbacks.onHover({
+            repo: d.point.repo,
+            commit: d.point.commit,
+            isPinned: d.point.sha === d.point.repo.pinnedSha,
+            clientX: event.clientX,
+            clientY: event.clientY,
+          });
+        },
+      )
       .on("mousemove", (event: MouseEvent, d: RingDatum) => {
         callbacks.onHover({
           repo: d.point.repo,
@@ -645,10 +668,7 @@ export function createTimeline(
   // Cap chosen so the tightest preset (1D over the full data span) is reachable,
   // with headroom to wheel down to ~12h. 1d minimum window prevents runaway zoom
   // beyond what time scales render cleanly.
-  const fullSpanDays = Math.max(
-    1,
-    (+dataMax - +dataMin) / 86_400_000,
-  );
+  const fullSpanDays = Math.max(1, (+dataMax - +dataMin) / 86_400_000);
   const maxZoom = Math.max(1000, fullSpanDays * 2);
 
   const z: ZoomBehavior<SVGGElement, unknown> = zoom<SVGGElement, unknown>()
