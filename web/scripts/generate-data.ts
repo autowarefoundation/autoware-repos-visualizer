@@ -151,6 +151,63 @@ function classifyRef(dir: string, version: string): PinnedRefKind {
   return "sha";
 }
 
+/**
+ * Resolve a pin from a historical autoware.repos to a commit SHA in a local
+ * sub-repo clone, given the autoware-meta tag's release date.
+ *
+ * Tags and SHAs resolve to a single immutable commit, so a plain rev-parse
+ * works. Branches don't: `version: tier4/universe` in 0.41.0 means "wherever
+ * tier4/universe pointed when 0.41.0 was tagged", which is rarely today's
+ * HEAD. For branch pins we look up the most recent commit on that branch on
+ * or before `releasedAt`. Branch refs that contain a slash (e.g. beta/1.7.0)
+ * also confuse `rev-parse <ref>^{commit}` with ambiguity; the explicit
+ * `refs/remotes/origin/<ref>` / `refs/heads/<ref>` lookup avoids that.
+ */
+function resolveHistoricalPin(
+  dir: string,
+  version: string,
+  releasedAt: string,
+): string | null {
+  const isTag =
+    tryGit(dir, [
+      "show-ref",
+      "--tags",
+      "--verify",
+      "--quiet",
+      `refs/tags/${version}`,
+    ]) !== null;
+  if (isTag) {
+    return tryGit(dir, ["rev-parse", `refs/tags/${version}^{commit}`]);
+  }
+
+  // Long enough hex string: treat as a SHA pin.
+  if (/^[0-9a-f]{7,40}$/i.test(version)) {
+    const sha = tryGit(dir, ["rev-parse", `${version}^{commit}`]);
+    if (sha) return sha;
+  }
+
+  // Branch pin: resolve to the branch's state at the time of the meta tag.
+  for (const ref of [
+    `refs/remotes/origin/${version}`,
+    `refs/heads/${version}`,
+  ]) {
+    const exists =
+      tryGit(dir, ["show-ref", "--verify", "--quiet", ref]) !== null;
+    if (!exists) continue;
+    const sha = tryGit(dir, [
+      "log",
+      ref,
+      `--until=${releasedAt}`,
+      "--format=%H",
+      "-n",
+      "1",
+    ]);
+    if (sha) return sha;
+  }
+
+  return null;
+}
+
 function parseCommits(raw: string, remoteUrl: string): CommitRecord[] {
   const out: CommitRecord[] = [];
   for (const record of raw.split(RECORD)) {
@@ -251,7 +308,16 @@ function processRepo(
 
 interface RepoIndex {
   byUrl: Map<string, string>; // canonical url -> current key
-  byLastSegment: Map<string, string>; // last url path segment -> current key
+  byLastSegment: Map<string, string>; // normalized last url path segment -> current key
+}
+
+/**
+ * Normalize a repository's last URL segment for fuzzy match. Lowercases and
+ * collapses '.' to '_' so historical names like `autoware.universe` match
+ * today's `autoware_universe` (Autoware renamed several repos along the way).
+ */
+function normSegment(seg: string): string {
+  return seg.toLowerCase().replace(/\./g, "_");
 }
 
 function buildRepoIndex(repos: RepoData[]): RepoIndex {
@@ -260,7 +326,10 @@ function buildRepoIndex(repos: RepoData[]): RepoIndex {
   for (const r of repos) {
     byUrl.set(r.remoteUrl, r.key);
     const seg = r.remoteUrl.split("/").pop();
-    if (seg && !byLastSegment.has(seg)) byLastSegment.set(seg, r.key);
+    if (seg) {
+      const norm = normSegment(seg);
+      if (!byLastSegment.has(norm)) byLastSegment.set(norm, r.key);
+    }
   }
   return { byUrl, byLastSegment };
 }
@@ -273,7 +342,7 @@ function matchToCurrentRepo(
   const direct = idx.byUrl.get(url);
   if (direct) return direct;
   const seg = url.split("/").pop();
-  if (seg) return idx.byLastSegment.get(seg) ?? null;
+  if (seg) return idx.byLastSegment.get(normSegment(seg)) ?? null;
   return null;
 }
 
@@ -332,7 +401,7 @@ function processVersion(
       dropUnresolved++;
       continue;
     }
-    const sha = tryGit(dir, ["rev-parse", `${entry.version}^{commit}`]);
+    const sha = resolveHistoricalPin(dir, entry.version, releasedAt);
     if (!sha) {
       dropUnresolved++;
       continue;
