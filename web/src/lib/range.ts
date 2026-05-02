@@ -47,3 +47,30 @@ export function writeRangeToQuery(key: RangeKey): void {
   url.searchParams.set("range", key);
   window.history.replaceState(null, "", url.toString());
 }
+
+// Returns null when the param is absent (caller should fall back to its
+// default) and a Set otherwise — including an empty Set when the param is
+// present but blank, so an explicit empty selection round-trips.
+export function parseVersionsFromQuery(): Set<string> | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has("versions")) return null;
+  const raw = params.get("versions") ?? "";
+  return new Set(
+    raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+}
+
+export function writeVersionsToQuery(versions: Set<string>): void {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (versions.size === 0) {
+    url.searchParams.delete("versions");
+  } else {
+    url.searchParams.set("versions", [...versions].join(","));
+  }
+  window.history.replaceState(null, "", url.toString());
+}

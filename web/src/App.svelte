@@ -5,7 +5,12 @@
   import Tooltip from "./components/Tooltip.svelte";
   import VersionSidebar from "./components/VersionSidebar.svelte";
   import type { Dataset, HoverPayload, RangeKey } from "./lib/types";
-  import { parseRangeFromQuery, writeRangeToQuery } from "./lib/range";
+  import {
+    parseRangeFromQuery,
+    parseVersionsFromQuery,
+    writeRangeToQuery,
+    writeVersionsToQuery,
+  } from "./lib/range";
   import { formatDateTime } from "./lib/format";
 
   let dataset: Dataset | null = null;
@@ -20,6 +25,13 @@
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       dataset = await res.json();
+      const fromUrl = parseVersionsFromQuery();
+      if (fromUrl !== null) {
+        selectedVersions = fromUrl;
+      } else {
+        const mainTag = dataset?.versions.find((v) => v.isMain)?.tag;
+        if (mainTag) selectedVersions = new Set([mainTag]);
+      }
     } catch (err) {
       loadError = err instanceof Error ? err.message : String(err);
     }
@@ -40,6 +52,7 @@
 
   function handleVersionsChange(next: Set<string>): void {
     selectedVersions = next;
+    writeVersionsToQuery(next);
   }
 </script>
 
