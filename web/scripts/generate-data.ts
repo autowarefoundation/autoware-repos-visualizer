@@ -3,7 +3,33 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import yaml from "js-yaml";
-import { interpolateSpectral } from "d3-scale-chromatic";
+import { hsl } from "d3-color";
+
+// Walk HSL hue evenly from red (0°) to violet (290°) so every adjacent pair of
+// versions is a clearly different hue. Spectral's curve packs too many samples
+// into the warm midband which then collapse onto similar olives once darkened.
+// After fixing the hue, pull lightness down until every colour clears a 3:1
+// contrast threshold against white (yellow needs more darkening than blue at
+// the same HSL.l).
+function relativeLuminance(r: number, g: number, b: number): number {
+  const lin = (v: number): number => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function rainbowReadable(fraction: number): string {
+  const hueDeg = 290 * fraction;
+  const c = hsl(hueDeg, 0.75, 0.45);
+  const target = 0.27; // ≈ 3:1 against white
+  let rgb = c.rgb();
+  while (relativeLuminance(rgb.r, rgb.g, rgb.b) > target && c.l > 0.05) {
+    c.l = Math.max(0.05, c.l - 0.02);
+    rgb = c.rgb();
+  }
+  return c.formatHex();
+}
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(HERE, "..");
@@ -470,8 +496,7 @@ function processVersions(idx: RepoIndex): AutowareVersion[] {
   for (let i = 0; i < dated.length; i++) {
     const t = dated[i];
     const fraction = dated.length === 1 ? 0.5 : i / (dated.length - 1);
-    // shift inward to skip the muddy ends of the spectral palette
-    const color = interpolateSpectral(0.05 + 0.9 * fraction);
+    const color = rainbowReadable(fraction);
     const v = processVersion(t.ref, t.isMain, color, idx);
     if (v) versions.push(v);
   }
